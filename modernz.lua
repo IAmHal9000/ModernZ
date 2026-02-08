@@ -40,6 +40,10 @@ local user_opts = {
     minmousemove = 0,                      -- minimum mouse movement (in pixels) required to show OSC
     bottomhover = true,                    -- show OSC only when hovering at the bottom
     bottomhover_zone = 130,                -- height of hover zone for bottomhover (in pixels)
+    osc_float = false,                     -- detach OSC from bottom edge, creating a floating panel
+    osc_float_margin_bottom = 20,          -- gap from bottom of screen in float mode (in pixels)
+    osc_float_margin_x = 20,              -- horizontal margin from screen edges (in pixels)
+    osc_float_corner_radius = 10,          -- rounded corner radius for the floating panel background
     osc_on_seek = false,                   -- show OSC when seeking
     osc_on_start = false,                  -- show OSC on start of every file
     osc_keep_with_cursor = true,           -- keep OSC visible if mouse cursor is within OSC boundaries
@@ -547,6 +551,7 @@ local function set_osc_styles()
         control_3 = "{\\blur0\\bord0\\1c&H" .. osc_color_convert(user_opts.side_buttons_color) .. "&\\3c&HFFFFFF&\\fs" .. sidebuttons_size .. "\\fn" .. iconfont .. "}",
         element_down = "{\\1c&H" .. osc_color_convert(user_opts.held_element_color) .. "&}",
         element_hover = "{" .. (contains(user_opts.hover_effect, "color") and "\\1c&H" .. osc_color_convert(user_opts.hover_effect_color) .. "&" or "") .."\\2c&HFFFFFF&" .. (contains(user_opts.hover_effect, "size") and string.format("\\fscx%s\\fscy%s", user_opts.hover_button_size, user_opts.hover_button_size) or "") .. "}",
+        osc_float_bg = "{\\blur1\\bord0\\1c&H" .. osc_color_convert(user_opts.osc_color) .. "&\\3c&H0&}",
     }
 end
 
@@ -1756,17 +1761,25 @@ layouts["modern"] = function ()
     local chapter_index = user_opts.show_chapter_title and mp.get_property_number("chapter", -1) >= 0
     local osc_height_offset = (no_title and user_opts.notitle_osc_h_offset or 0) + ((no_chapter or not chapter_index) and user_opts.nochapter_osc_h_offset or 0)
 
+    local is_float = user_opts.osc_float
+    local float_margin_x = is_float and user_opts.osc_float_margin_x or 0
+    local float_margin_bottom = is_float and user_opts.osc_float_margin_bottom or 0
+
     local osc_geo = {
-        w = osc_param.playresx,
+        w = osc_param.playresx - 2 * float_margin_x,
         h = user_opts.osc_height - osc_height_offset
     }
 
     -- update bottom margin
-    osc_param.video_margins.b = math.max(user_opts.osc_height, user_opts.fade_alpha) / osc_param.playresy
+    if is_float then
+        osc_param.video_margins.b = 0
+    else
+        osc_param.video_margins.b = math.max(user_opts.osc_height, user_opts.fade_alpha) / osc_param.playresy
+    end
 
     -- origin of the controllers, left/bottom corner
-    local posX = 0
-    local posY = osc_param.playresy
+    local posX = float_margin_x
+    local posY = osc_param.playresy - float_margin_bottom
 
     osc_param.areas = {} -- delete areas
 
@@ -1784,10 +1797,17 @@ layouts["modern"] = function ()
 
     new_element("osc_fade_bg", "box")
     lo = add_layout("osc_fade_bg")
-    lo.geometry = {x = posX, y = posY, an = 7, w = osc_w, h = 1}
-    lo.style = osc_styles.osc_fade_bg
+    if is_float then
+        lo.geometry = {x = posX, y = posY - osc_h, an = 7, w = osc_w, h = osc_h}
+        lo.style = osc_styles.osc_float_bg
+        lo.box.radius = user_opts.osc_float_corner_radius
+        lo.alpha[1] = 80
+    else
+        lo.geometry = {x = posX, y = posY, an = 7, w = osc_w, h = 1}
+        lo.style = osc_styles.osc_fade_bg
+        lo.alpha[3] = user_opts.fade_transparency_strength
+    end
     lo.layer = 10
-    lo.alpha[3] = user_opts.fade_transparency_strength
 
     local top_titlebar = window_controls_enabled() and (user_opts.show_window_title or user_opts.window_controls)
 
@@ -1802,7 +1822,7 @@ layouts["modern"] = function ()
     end
 
     -- Alignment
-    local refX = osc_w / 2
+    local refX = posX + osc_w / 2
     local refY = posY
 
     -- Seekbar
@@ -1853,7 +1873,7 @@ layouts["modern"] = function ()
     local outeroffset = (chapter_skip_buttons and 0 or 100) + (jump_buttons and 0 or 100)
 
     -- OSC title
-    geo = {x = 25, y = refY - (chapter_index and user_opts.title_with_chapter_height or user_opts.title_height), an = 1, w = osc_geo.w - 50 - (loop_button and 45 or 0) - (speed_button and 45 or 0), h = user_opts.title_font_size}
+    geo = {x = posX + 25, y = refY - (chapter_index and user_opts.title_with_chapter_height or user_opts.title_height), an = 1, w = osc_geo.w - 50 - (loop_button and 45 or 0) - (speed_button and 45 or 0), h = user_opts.title_font_size}
     lo = add_layout("title")
     lo.geometry = geo
     lo.style = string.format("%s{\\clip(0,%f,%f,%f)}", osc_styles.title, geo.y - geo.h, geo.x + geo.w, geo.y + geo.h)
@@ -1862,7 +1882,7 @@ layouts["modern"] = function ()
     -- Chapter title (above seekbar)
     if user_opts.show_chapter_title then
         lo = add_layout("chapter_title")
-        lo.geometry = {x = 26, y = refY - user_opts.chapter_title_height, an = 1, w = osc_geo.w / 2, h = user_opts.chapter_title_font_size}
+        lo.geometry = {x = posX + 26, y = refY - user_opts.chapter_title_height, an = 1, w = osc_geo.w / 2, h = user_opts.chapter_title_font_size}
         lo.style = string.format("%s{\\clip(0,%f,%f,%f)}", osc_styles.chapter_title, geo.y - geo.h, geo.x + geo.w, geo.y + geo.h)
     end
 
@@ -1907,7 +1927,7 @@ layouts["modern"] = function ()
         lo.style = osc_styles.control_2
     end
 
-    local start_x = 37
+    local start_x = posX + 37
 
     -- Playlist
     if playlist_button then
@@ -1991,7 +2011,7 @@ layouts["modern"] = function ()
     lo.style = osc_styles.time
 
     -- Fullscreen/Info/Pin/Screenshot/Loop/Speed
-    local end_x = osc_geo.w - 37
+    local end_x = posX + osc_w - 37
     if fullscreen_button then
         lo = add_layout("tog_fullscreen")
         lo.geometry = {x = end_x, y = refY - 35, an = 5, w = 24, h = 24}
@@ -2070,17 +2090,25 @@ layouts["modern-compact"] = function ()
         ((user_opts.title_mbtn_left_command == "" and user_opts.title_mbtn_right_command == "") and 25 or 0) +
         (((user_opts.chapter_title_mbtn_left_command == "" and user_opts.chapter_title_mbtn_right_command == "") or not chapter_index) and 10 or 0)
 
+    local is_float = user_opts.osc_float
+    local float_margin_x = is_float and user_opts.osc_float_margin_x or 0
+    local float_margin_bottom = is_float and user_opts.osc_float_margin_bottom or 0
+
     local osc_geo = {
-        w = osc_param.playresx,
+        w = osc_param.playresx - 2 * float_margin_x,
         h = 145 - osc_height_offset
     }
 
     -- update bottom margin
-    osc_param.video_margins.b = math.max(145, 120) / osc_param.playresy
+    if is_float then
+        osc_param.video_margins.b = 0
+    else
+        osc_param.video_margins.b = math.max(145, 120) / osc_param.playresy
+    end
 
     -- origin of the controllers, left/bottom corner
-    local posX = 0
-    local posY = osc_param.playresy
+    local posX = float_margin_x
+    local posY = osc_param.playresy - float_margin_bottom
 
     osc_param.areas = {} -- delete areas
 
@@ -2098,10 +2126,17 @@ layouts["modern-compact"] = function ()
 
     new_element("osc_fade_bg", "box")
     lo = add_layout("osc_fade_bg")
-    lo.geometry = {x = posX, y = posY, an = 7, w = osc_w, h = 1}
-    lo.style = osc_styles.osc_fade_bg
+    if is_float then
+        lo.geometry = {x = posX, y = posY - osc_h, an = 7, w = osc_w, h = osc_h}
+        lo.style = osc_styles.osc_float_bg
+        lo.box.radius = user_opts.osc_float_corner_radius
+        lo.alpha[1] = 80
+    else
+        lo.geometry = {x = posX, y = posY, an = 7, w = osc_w, h = 1}
+        lo.style = osc_styles.osc_fade_bg
+        lo.alpha[3] = 50
+    end
     lo.layer = 10
-    lo.alpha[3] = 50
 
     local top_titlebar = window_controls_enabled() and (user_opts.show_window_title or user_opts.window_controls)
 
@@ -2116,7 +2151,7 @@ layouts["modern-compact"] = function ()
     end
 
     -- Alignment
-    local refX = osc_w / 2
+    local refX = posX + osc_w / 2
     local refY = posY
 
     -- Seekbar
@@ -2160,7 +2195,7 @@ layouts["modern-compact"] = function ()
     -- OSC title
     local title_w = (chapter_index and (osc_geo.w - 50) or (osc_geo.w - 50 - time_codes_width))
     if title_w < 0 then title_w = 0 end
-    geo = {x = 25, y = refY - (chapter_index and user_opts.title_with_chapter_height or user_opts.title_height), an = 1, w = title_w, h = user_opts.title_font_size}
+    geo = {x = posX + 25, y = refY - (chapter_index and user_opts.title_with_chapter_height or user_opts.title_height), an = 1, w = title_w, h = user_opts.title_font_size}
     lo = add_layout("title")
     lo.geometry = geo
     lo.style = string.format("%s{\\clip(%f,%f,%f,%f)}", osc_styles.title, geo.x, geo.y - geo.h, geo.x + geo.w, geo.y + geo.h)
@@ -2168,18 +2203,18 @@ layouts["modern-compact"] = function ()
 
     -- Chapter title (above seekbar)
     if user_opts.show_chapter_title then
-        local chapter_geo = {x = 25, y = refY - user_opts.chapter_title_height, an = 1, w = osc_geo.w / 2, h = user_opts.chapter_title_font_size}
+        local chapter_geo = {x = posX + 25, y = refY - user_opts.chapter_title_height, an = 1, w = osc_geo.w / 2, h = user_opts.chapter_title_font_size}
         lo = add_layout("chapter_title")
         lo.geometry = chapter_geo
         lo.style = string.format("%s{\\clip(%f,%f,%f,%f)}", osc_styles.chapter_title, chapter_geo.x, chapter_geo.y - chapter_geo.h, chapter_geo.x + chapter_geo.w, chapter_geo.y + chapter_geo.h)
     end
     -- Time codes
     lo = add_layout("time_codes")
-    lo.geometry = {x = osc_geo.w - 25, y = refY - 96, an = 6, w = time_codes_width, h = user_opts.time_font_size}
+    lo.geometry = {x = posX + osc_w - 25, y = refY - 96, an = 6, w = time_codes_width, h = user_opts.time_font_size}
     lo.style = osc_styles.time
 
     -- Left side buttons
-    local start_x = 50
+    local start_x = posX + 50
 
     lo = add_layout("play_pause")
     lo.geometry = {x = start_x, y = refY - 35, an = 5, w = 24, h = 24}
@@ -2232,7 +2267,7 @@ layouts["modern-compact"] = function ()
     end
 
     -- Right side buttons
-    local end_x = osc_geo.w - 50
+    local end_x = posX + osc_w - 50
 
     if user_opts.fullscreen_button then
         lo = add_layout("tog_fullscreen")
@@ -3405,7 +3440,8 @@ local function process_event(source, what)
             ) then
                 if user_opts.bottomhover then -- if enabled, only show osc if mouse is hovering at the bottom of the screen (where the UI elements are)
                     local top_hover = window_controls_enabled() and (user_opts.show_window_title or user_opts.window_controls)
-                    if mouseY > osc_param.playresy - (user_opts.bottomhover_zone or 130)
+                    local float_offset = user_opts.osc_float and user_opts.osc_float_margin_bottom or 0
+                    if mouseY > osc_param.playresy - (user_opts.bottomhover_zone or 130) - float_offset
                     or ((user_opts.window_top_bar == "yes" or not (state.border and state.title_bar)) or state.fullscreen) and (mouseY < 40 and top_hover) then
                         show_osc()
                     else
