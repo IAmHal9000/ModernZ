@@ -1223,19 +1223,19 @@ local function render_elements(master_ass)
     for n=1, #elements do
         local element = elements[n]
 
-        -- in independent mode, skip elements whose group is not visible
+        -- in independent mode, check if the element's group is visible
+        local skip = false
         if user_opts.independent_wc then
             local group = element.layout.group
-            if group == "top" and not state.wc_visible then
-                goto continue
-            elseif group == "bottom" and not state.osc_visible then
-                goto continue
+            if (group == "top" and not state.wc_visible)
+                or (group == "bottom" and not state.osc_visible) then
+                skip = true
             end
         end
 
         -- use per-group animation override in independent mode
         local anim_override = nil
-        if user_opts.independent_wc then
+        if not skip and user_opts.independent_wc then
             if element.layout.group == "top" then
                 anim_override = state.wc_animation
             else
@@ -1243,6 +1243,7 @@ local function render_elements(master_ass)
             end
         end
 
+        if not skip then
         local style_ass = assdraw.ass_new()
         style_ass:merge(element.style_ass)
         ass_append_alpha(style_ass, element.layout.alpha, 0, nil, anim_override)
@@ -1507,7 +1508,7 @@ local function render_elements(master_ass)
         end
 
         master_ass:merge(elem_ass)
-        ::continue::
+        end -- not skip
     end
 end
 
