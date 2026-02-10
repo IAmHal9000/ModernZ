@@ -883,6 +883,65 @@ local function update_margins()
 end
 
 local tick
+
+-- shared fade animation handler for OSC and window controls
+local function handle_fade_animation(anitype_key, anistart_key, animation_key, visible_fn, kill_fn, now)
+    if state[anitype_key] ~= nil then
+        if state[anistart_key] == nil then
+            state[anistart_key] = now
+        end
+
+        if now < state[anistart_key] + (user_opts.fadeduration / 1000) then
+            if state[anitype_key] == "in" then
+                visible_fn(true)
+                state[animation_key] = scale_value(state[anistart_key],
+                    (state[anistart_key] + (user_opts.fadeduration / 1000)),
+                    255, 0, now)
+            elseif state[anitype_key] == "out" then
+                state[animation_key] = scale_value(state[anistart_key],
+                    (state[anistart_key] + (user_opts.fadeduration / 1000)),
+                    0, 255, now)
+            end
+        else
+            if state[anitype_key] == "out" then
+                visible_fn(false)
+            end
+            kill_fn()
+        end
+    else
+        kill_fn()
+    end
+end
+
+-- shared autohide timeout handler for OSC and window controls
+local function handle_autohide(showtime_key, hide_timer_key, hide_fn, mouse_over, now)
+    if state[showtime_key] ~= nil and get_hidetimeout() >= 0 then
+        local timeout = state[showtime_key] + (get_hidetimeout() / 1000) - now
+        if timeout <= 0 and get_touchtimeout() <= 0 then
+            if state.active_element == nil and not mouse_over then
+                hide_fn()
+            end
+        else
+            if not state[hide_timer_key] then
+                state[hide_timer_key] = mp.add_timeout(0, tick)
+            end
+            state[hide_timer_key].timeout = timeout
+            state[hide_timer_key]:kill()
+            state[hide_timer_key]:resume()
+        end
+    end
+end
+
+-- shared timeout check for mouse_leave
+local function check_show_timeout(showtime_key, hide_fn)
+    if state[showtime_key] then
+        local elapsed = mp.get_time() - state[showtime_key]
+        if elapsed >= (get_hidetimeout() / 1000) then
+            hide_fn()
+        end
+    end
+end
+
 -- Request that tick() is called (which typically re-renders the OSC).
 -- The tick is then either executed immediately, or rate-limited if it was
 -- called a small time ago.
@@ -3421,18 +3480,9 @@ local function mouse_leave()
     state.touchtime = nil
 
     if get_hidetimeout() >= 0 and get_touchtimeout() <= 0 then
-        local elapsed_time = mp.get_time() - state.showtime
-
-        if elapsed_time >= (get_hidetimeout() / 1000) then
-            hide_osc()
-        end
-
-        -- independent wc timeout
-        if user_opts.independent_wc and state.wc_showtime then
-            local wc_elapsed = mp.get_time() - state.wc_showtime
-            if wc_elapsed >= (get_hidetimeout() / 1000) then
-                hide_wc()
-            end
+        check_show_timeout("showtime", hide_osc)
+        if user_opts.independent_wc then
+            check_show_timeout("wc_showtime", hide_wc)
         end
     end
 
@@ -3525,28 +3575,9 @@ local function process_event(source, what)
 
                     if user_opts.independent_wc then
                         -- independent mode: each zone triggers its own group
-                        if in_bottom then
-                            show_osc()
-                        else
-                            -- timeout OSC independently
-                            if get_hidetimeout() >= 0 and get_touchtimeout() <= 0 and state.showtime then
-                                local elapsed = mp.get_time() - state.showtime
-                                if elapsed >= (get_hidetimeout() / 1000) then
-                                    hide_osc()
-                                end
-                            end
-                        end
-                        if in_top then
-                            show_wc()
-                        else
-                            -- timeout wc independently
-                            if get_hidetimeout() >= 0 and get_touchtimeout() <= 0 and state.wc_showtime then
-                                local wc_elapsed = mp.get_time() - state.wc_showtime
-                                if wc_elapsed >= (get_hidetimeout() / 1000) then
-                                    hide_wc()
-                                end
-                            end
-                        end
+                        -- render() handles autohide via timers
+                        if in_bottom then show_osc() end
+                        if in_top then show_wc() end
                     else
                         -- coupled mode: either zone triggers both (via show_osc coupling)
                         if in_bottom or in_top then
@@ -3641,59 +3672,9 @@ local function render()
     end
 
     -- fade animation
-    if state.anitype ~= nil then
-        if state.anistart == nil then
-            state.anistart = now
-        end
-
-        if now < state.anistart + (user_opts.fadeduration / 1000) then
-            if state.anitype == "in" then --fade in
-                osc_visible(true)
-                state.animation = scale_value(state.anistart,
-                    (state.anistart + (user_opts.fadeduration / 1000)),
-                    255, 0, now)
-            elseif state.anitype == "out" then --fade out
-                state.animation = scale_value(state.anistart,
-                    (state.anistart + (user_opts.fadeduration / 1000)),
-                    0, 255, now)
-            end
-        else
-            if state.anitype == "out" then
-                osc_visible(false)
-            end
-            kill_animation()
-        end
-    else
-        kill_animation()
-    end
-
-    -- window controls fade animation (independent mode)
+    handle_fade_animation("anitype", "anistart", "animation", osc_visible, kill_animation, now)
     if user_opts.independent_wc then
-        if state.wc_anitype ~= nil then
-            if state.wc_anistart == nil then
-                state.wc_anistart = now
-            end
-
-            if now < state.wc_anistart + (user_opts.fadeduration / 1000) then
-                if state.wc_anitype == "in" then
-                    wc_visible(true)
-                    state.wc_animation = scale_value(state.wc_anistart,
-                        (state.wc_anistart + (user_opts.fadeduration / 1000)),
-                        255, 0, now)
-                elseif state.wc_anitype == "out" then
-                    state.wc_animation = scale_value(state.wc_anistart,
-                        (state.wc_anistart + (user_opts.fadeduration / 1000)),
-                        0, 255, now)
-                end
-            else
-                if state.wc_anitype == "out" then
-                    wc_visible(false)
-                end
-                kill_wc_animation()
-            end
-        else
-            kill_wc_animation()
-        end
+        handle_fade_animation("wc_anitype", "wc_anistart", "wc_animation", wc_visible, kill_wc_animation, now)
     end
 
     --mouse show/hide area
@@ -3769,40 +3750,9 @@ local function render()
     end
 
     -- autohide
-    if state.showtime ~= nil and get_hidetimeout() >= 0 then
-        local timeout = state.showtime + (get_hidetimeout() / 1000) - now
-        if timeout <= 0 and get_touchtimeout() <= 0 then
-            if state.active_element == nil and not mouse_over_osc then
-                hide_osc()
-            end
-        else
-            -- the timer is only used to recheck the state and to possibly run
-            -- the code above again
-            if not state.hide_timer then
-                state.hide_timer = mp.add_timeout(0, tick)
-            end
-            state.hide_timer.timeout = timeout
-            -- re-arm
-            state.hide_timer:kill()
-            state.hide_timer:resume()
-        end
-    end
-
-    -- wc autohide (independent mode)
-    if user_opts.independent_wc and state.wc_showtime ~= nil and get_hidetimeout() >= 0 then
-        local wc_timeout = state.wc_showtime + (get_hidetimeout() / 1000) - now
-        if wc_timeout <= 0 and get_touchtimeout() <= 0 then
-            if state.active_element == nil and not mouse_over_osc then
-                hide_wc()
-            end
-        else
-            if not state.wc_hide_timer then
-                state.wc_hide_timer = mp.add_timeout(0, tick)
-            end
-            state.wc_hide_timer.timeout = wc_timeout
-            state.wc_hide_timer:kill()
-            state.wc_hide_timer:resume()
-        end
+    handle_autohide("showtime", "hide_timer", hide_osc, mouse_over_osc, now)
+    if user_opts.independent_wc then
+        handle_autohide("wc_showtime", "wc_hide_timer", hide_wc, mouse_over_osc, now)
     end
 
     -- actual rendering
