@@ -40,6 +40,7 @@ local user_opts = {
     minmousemove = 0,                      -- minimum mouse movement (in pixels) required to show OSC
     bottomhover = true,                    -- show OSC only when hovering at the bottom
     bottomhover_zone = 130,                -- height of hover zone for bottomhover (in pixels)
+    tophover_zone = 40,                    -- height of hover zone for top bar (in pixels)
     independent_wc = false,                -- show/hide window controls independently from OSC
     osc_on_seek = false,                   -- show OSC when seeking
     osc_on_start = false,                  -- show OSC on start of every file
@@ -1818,7 +1819,7 @@ layouts["modern"] = function ()
     -- area for show/hide
     add_area("showhide", 0, 0, osc_param.playresx, osc_param.playresy)
     if window_controls_enabled() then
-        add_area("showhide_wc", 0, 0, osc_param.playresx, 50)
+        add_area("showhide_wc", 0, 0, osc_param.playresx, user_opts.tophover_zone)
     end
 
     -- fetch values
@@ -2136,7 +2137,7 @@ layouts["modern-compact"] = function ()
     -- area for show/hide
     add_area("showhide", 0, 0, osc_param.playresx, osc_param.playresy)
     if window_controls_enabled() then
-        add_area("showhide_wc", 0, 0, osc_param.playresx, 50)
+        add_area("showhide_wc", 0, 0, osc_param.playresx, user_opts.tophover_zone)
     end
 
     -- fetch values
@@ -2358,7 +2359,7 @@ layouts["modern-image"] = function ()
     -- area for show/hide
     add_area("showhide", 0, 0, osc_param.playresx, osc_param.playresy)
     if window_controls_enabled() then
-        add_area("showhide_wc", 0, 0, osc_param.playresx, 50)
+        add_area("showhide_wc", 0, 0, osc_param.playresx, user_opts.tophover_zone)
     end
 
     -- fetch values
@@ -3520,7 +3521,7 @@ local function process_event(source, what)
                 if user_opts.bottomhover then -- if enabled, only show osc if mouse is hovering at the bottom of the screen (where the UI elements are)
                     local top_hover = window_controls_enabled() and (user_opts.show_window_title or user_opts.window_controls)
                     local in_bottom = mouseY > osc_param.playresy - (user_opts.bottomhover_zone or 130)
-                    local in_top = ((user_opts.window_top_bar == "yes" or not (state.border and state.title_bar)) or state.fullscreen) and (mouseY < 40 and top_hover)
+                    local in_top = ((user_opts.window_top_bar == "yes" or not (state.border and state.title_bar)) or state.fullscreen) and (mouseY < (user_opts.tophover_zone or 40) and top_hover)
 
                     if user_opts.independent_wc then
                         -- independent mode: each zone triggers its own group
